@@ -1,2 +1,2 @@
-# Projeto-Calculadora-Java
-Projeto de uma Calculadora usando Java para a Disciplina de Teste de Software
+# Sistema de Controle de Assinaturas
+Projeto de um Sistema de Controle de Assinaturas para a Disciplina de Teste de Software
