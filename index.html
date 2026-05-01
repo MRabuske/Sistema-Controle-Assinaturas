@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SubControl — Sistema de Controle de Assinaturas</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideInRight {
+      from { opacity: 0; transform: translateX(40px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(100%); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes toastOut {
+      from { opacity: 1; transform: translateX(0); }
+      to { opacity: 0; transform: translateX(100%); }
+    }
+    @keyframes overlayIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    input[type="number"] { -moz-appearance: textfield; }
+    ::selection { background: #0d948833; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useMemo, useEffect, useCallback, useRef } = React;
+
+    // ─── Helpers ────────────────────────────────────────────────
+    const today = () => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+    const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+    const fmtDate = (d) => {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${dd}/${mm}/${d.getFullYear()}`;
+    };
+    const toISOStr = (d) => {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    };
+    const parseDate = (s) => {
+      if (!s) return null;
+      if (s.includes('/')) {
+        const [dd, mm, yyyy] = s.split('/');
+        return new Date(+yyyy, +mm - 1, +dd);
+      }
+      const [yyyy, mm, dd] = s.split('-');
+      return new Date(+yyyy, +mm - 1, +dd);
+    };
+    const fmtBRL = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const diffDays = (a, b) => Math.ceil((a - b) / 86400000);
+    const calcMonthly = (val, period) => {
+      switch (period) {
+        case 'Semanal': return val * 4.33;
+        case 'Mensal': return val;
+        case 'Trimestral': return val / 3;
+        case 'Semestral': return val / 6;
+        case 'Anual': return val / 12;
+        default: return val;
+      }
+    };
+
+    const CATEGORIES = ['Streaming', 'Música', 'Produtividade', 'Saúde/Academia', 'Armazenamento/Cloud', 'Educação', 'Jogos', 'Delivery', 'Seguros', 'Outros'];
+    const PERIODS = ['Semanal', 'Mensal', 'Trimestral', 'Semestral', 'Anual'];
+    const PAYMENTS = ['Cartão de Crédito', 'Cartão de Débito', 'Boleto', 'Pix', 'Débito Automático'];
+    const STATUSES = ['Ativa', 'Pausada', 'Cancelada'];
+
+    const CATEGORY_COLORS = {
+      'Streaming': '#ef4444',
+      'Música': '#8b5cf6',
+      'Produtividade': '#3b82f6',
+      'Saúde/Academia': '#22c55e',
+      'Armazenamento/Cloud': '#06b6d4',
+      'Educação': '#f59e0b',
+      'Jogos': '#ec4899',
+      'Delivery': '#f97316',
+      'Seguros': '#6366f1',
+      'Outros': '#64748b',
+    };
+
+    const STATUS_COLORS = { Ativa: '#16a34a', Pausada: '#eab308', Cancelada: '#dc2626' };
+    const STATUS_BG = { Ativa: '#dcfce7', Pausada: '#fef9c3', Cancelada: '#fee2e2' };
+
+    const initials = (name) => name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+    const INITIAL_SUBS = [
+      { id: 1, name: 'Netflix Premium', category: 'Streaming', value: 55.90, period: 'Mensal', startDate: null, renewalDate: addDays(today(), 3), payment: 'Cartão de Crédito', status: 'Ativa', notes: '', alertDays: null, alertEnabled: true },
+      { id: 2, name: 'Spotify Família', category: 'Música', value: 34.90, period: 'Mensal', startDate: null, renewalDate: addDays(today(), 8), payment: 'Cartão de Crédito', status: 'Ativa', notes: '', alertDays: null, alertEnabled: true },
+      { id: 3, name: 'iCloud 200GB', category: 'Armazenamento/Cloud', value: 50.00, period: 'Anual', startDate: null, renewalDate: addDays(today(), 60), payment: 'Débito Automático', status: 'Ativa', notes: '', alertDays: null, alertEnabled: true },
+      { id: 4, name: 'Smart Fit', category: 'Saúde/Academia', value: 89.90, period: 'Mensal', startDate: null, renewalDate: addDays(today(), 12), payment: 'Cartão de Débito', status: 'Pausada', notes: '', alertDays: null, alertEnabled: true },
+      { id: 5, name: 'HBO Max', category: 'Streaming', value: 34.90, period: 'Mensal', startDate: null, renewalDate: addDays(today(), 25), payment: 'Cartão de Crédito', status: 'Cancelada', notes: '', alertDays: null, alertEnabled: false },
+      { id: 6, name: 'Duolingo Plus', category: 'Educação', value: 41.90, period: 'Mensal', startDate: null, renewalDate: addDays(today(), 5), payment: 'Pix', status: 'Ativa', notes: '', alertDays: null, alertEnabled: true },
+    ].map(s => ({ ...s, monthly: calcMonthly(s.value, s.period) }));
+
+    // ─── Components ─────────────────────────────────────────────
+
+    // Toast
+    function ToastContainer({ toasts, onRemove }) {
+      return (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {toasts.map(t => (
+            <div key={t.id} onClick={() => onRemove(t.id)} style={{
+              animation: t.leaving ? 'toastOut 0.3s ease forwards' : 'toastIn 0.4s ease',
+              background: 'linear-gradient(135deg, #0d9488, #0f766e)',
+              color: '#fff',
+              padding: '14px 24px',
+              borderRadius: 12,
+              fontSize: 14,
+              fontWeight: 500,
+              boxShadow: '0 8px 32px rgba(13,148,136,0.3)',
+              cursor: 'pointer',
+              maxWidth: 360,
+              fontFamily: "'DM Sans', sans-serif",
+            }}>{t.msg}</div>
+          ))}
+        </div>
+      );
+    }
+
+    // Modal
+    function Modal({ show, title, message, onConfirm, onCancel }) {
+      if (!show) return null;
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9998,
+          background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'overlayIn 0.2s ease',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: '32px 36px', maxWidth: 440, width: '90%',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.2)', animation: 'scaleIn 0.25s ease',
+            fontFamily: "'DM Sans', sans-serif",
+          }}>
+            <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 700, marginBottom: 12, color: '#0f172a' }}>{title}</h3>
+            <p style={{ fontSize: 15, color: '#475569', lineHeight: 1.6, marginBottom: 28 }}>{message}</p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button onClick={onCancel} style={{
+                padding: '10px 24px', borderRadius: 10, border: '1px solid #e2e8f0',
+                background: '#fff', color: '#64748b', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "'DM Sans', sans-serif",
+              }}>Cancelar</button>
+              <button onClick={onConfirm} style={{
+                padding: '10px 24px', borderRadius: 10, border: 'none',
+                background: 'linear-gradient(135deg, #0d9488, #0f766e)', color: '#fff',
+                fontSize: 14, fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 16px rgba(13,148,136,0.3)',
+                fontFamily: "'DM Sans', sans-serif",
+              }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Navbar
+    function Navbar({ active, onChange }) {
+      const tabs = [
+        { id: 'cadastrar', label: 'Cadastrar', icon: '＋' },
+        { id: 'consultar', label: 'Consultar', icon: '◎' },
+        { id: 'alertas', label: 'Alertas', icon: '🔔' },
+      ];
+      return (
+        <nav style={{
+          position: 'sticky', top: 0, zIndex: 100,
+          background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(16px) saturate(180%)',
+          borderBottom: '1px solid #e2e8f0',
+          padding: '0 24px',
+        }}>
+          <div style={{
+            maxWidth: 1200, margin: '0 auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            height: 64,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: 'linear-gradient(135deg, #0d9488, #0f766e)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontWeight: 800, fontSize: 16, fontFamily: "'Sora', sans-serif",
+              }}>S</div>
+              <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 20, color: '#0f172a' }}>
+                Sub<span style={{ color: '#0d9488' }}>Control</span>
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => onChange(t.id)} style={{
+                  padding: '8px 20px', borderRadius: 10, border: 'none',
+                  background: active === t.id ? '#0d94880f' : 'transparent',
+                  color: active === t.id ? '#0d9488' : '#64748b',
+                  fontWeight: active === t.id ? 700 : 500,
+                  fontSize: 14, cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif",
+                  transition: 'all 0.2s',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{ fontSize: 15 }}>{t.icon}</span> {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </nav>
+      );
+    }
+
+    // Input field
+    function Field({ label, required, error, children, hint }) {
+      return (
+        <div style={{ marginBottom: 20 }}>
+          <label style={{
+            display: 'block', fontSize: 13, fontWeight: 600, color: '#475569',
+            marginBottom: 6, fontFamily: "'DM Sans', sans-serif",
+          }}>
+            {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
+          </label>
+          {children}
+          {error && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 4, fontWeight: 500 }}>{error}</p>}
+          {hint && <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>{hint}</p>}
+        </div>
+      );
+    }
+
+    const inputStyle = (hasError) => ({
+      width: '100%', padding: '10px 14px', borderRadius: 10,
+      border: `1.5px solid ${hasError ? '#ef4444' : '#e2e8f0'}`,
+      fontSize: 14, fontFamily: "'DM Sans', sans-serif",
+      color: '#1e293b', background: '#fff',
+      outline: 'none', transition: 'border-color 0.2s',
+    });
+
+    const selectStyle = (hasError) => ({
+      ...inputStyle(hasError),
+      appearance: 'none',
+      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'right 12px center',
+      paddingRight: 36,
+    });
+
+    // ─── TELA 1: Cadastrar ──────────────────────────────────────
+    function CadastrarScreen({ subscriptions, onAdd, showToast }) {
+      const emptyForm = { name: '', category: '', value: '', period: '', startDate: '', renewalDate: '', payment: '', status: 'Ativa', notes: '' };
+      const [form, setForm] = useState(emptyForm);
+      const [errors, setErrors] = useState({});
+      const [modal, setModal] = useState(false);
+
+      const set = (k, v) => {
+        setForm(f => ({ ...f, [k]: v }));
+        setErrors(e => ({ ...e, [k]: '' }));
+      };
+
+      const validate = () => {
+        const e = {};
+        if (!form.name.trim()) e.name = 'Campo obrigatório.';
+        else if (subscriptions.some(s => s.name.toLowerCase() === form.name.trim().toLowerCase()))
+          e.name = 'Já existe uma assinatura cadastrada com este nome de serviço.';
+        const val = parseFloat(form.value);
+        if (!form.value || isNaN(val) || val <= 0)
+          e.value = 'O valor informado é inválido. Informe um valor numérico positivo.';
+        if (!form.period) e.period = 'Campo obrigatório.';
+        if (!form.renewalDate) e.renewalDate = 'Campo obrigatório.';
+        else {
+          const rd = parseDate(form.renewalDate);
+          if (rd && rd < today()) e.renewalDate = 'A data de renovação não pode ser anterior à data atual.';
+        }
+        if (!form.status) e.status = 'Campo obrigatório.';
+        setErrors(e);
+        return Object.keys(e).length === 0;
+      };
+
+      const handleSubmit = () => { if (validate()) setModal(true); };
+
+      const confirm = () => {
+        const val = parseFloat(form.value);
+        const sub = {
+          id: Date.now(),
+          name: form.name.trim(),
+          category: form.category || 'Outros',
+          value: val,
+          period: form.period,
+          startDate: form.startDate ? parseDate(form.startDate) : null,
+          renewalDate: parseDate(form.renewalDate),
+          payment: form.payment || '',
+          status: form.status,
+          notes: form.notes,
+          monthly: calcMonthly(val, form.period),
+          alertDays: null,
+          alertEnabled: true,
+        };
+        onAdd(sub);
+        setModal(false);
+        setForm(emptyForm);
+        setErrors({});
+        showToast('Assinatura cadastrada com sucesso.');
+      };
+
+      return (
+        <div style={{ animation: 'fadeIn 0.4s ease', maxWidth: 720, margin: '0 auto', padding: '32px 16px' }}>
+          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 28, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
+            Cadastrar Assinatura
+          </h1>
+          <p style={{ color: '#64748b', fontSize: 15, marginBottom: 32 }}>Adicione uma nova assinatura de serviço recorrente.</p>
+
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: '32px 28px',
+            border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <Field label="Nome do Serviço" required error={errors.name}>
+                  <input style={inputStyle(errors.name)} maxLength={100} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ex: Netflix, Spotify..." />
+                </Field>
+              </div>
+              <Field label="Categoria">
+                <select style={selectStyle()} value={form.category} onChange={e => set('category', e.target.value)}>
+                  <option value="">Selecione (padrão: Outros)</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Valor (R$)" required error={errors.value}>
+                <input style={inputStyle(errors.value)} type="number" step="0.01" min="0.01" value={form.value} onChange={e => set('value', e.target.value)} placeholder="0,00" />
+              </Field>
+              <Field label="Periodicidade" required error={errors.period}>
+                <select style={selectStyle(errors.period)} value={form.period} onChange={e => set('period', e.target.value)}>
+                  <option value="">Selecione</option>
+                  {PERIODS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </Field>
+              <Field label="Data de Início" hint="Formato DD/MM/AAAA">
+                <input style={inputStyle()} type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} />
+              </Field>
+              <Field label="Próxima Renovação" required error={errors.renewalDate}>
+                <input style={inputStyle(errors.renewalDate)} type="date" value={form.renewalDate} onChange={e => set('renewalDate', e.target.value)} min={toISOStr(today())} />
+              </Field>
+              <Field label="Forma de Pagamento">
+                <select style={selectStyle()} value={form.payment} onChange={e => set('payment', e.target.value)}>
+                  <option value="">Selecione</option>
+                  {PAYMENTS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </Field>
+              <Field label="Status" required error={errors.status}>
+                <select style={selectStyle(errors.status)} value={form.status} onChange={e => set('status', e.target.value)}>
+                  {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <Field label="Observações" hint={`${form.notes.length}/500 caracteres`}>
+                  <textarea style={{ ...inputStyle(), minHeight: 80, resize: 'vertical' }} maxLength={500} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Anotações adicionais..." />
+                </Field>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button onClick={() => { setForm(emptyForm); setErrors({}); }} style={{
+                padding: '12px 28px', borderRadius: 10, border: '1px solid #e2e8f0',
+                background: '#fff', color: '#64748b', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "'DM Sans', sans-serif",
+              }}>Cancelar</button>
+              <button onClick={handleSubmit} style={{
+                padding: '12px 28px', borderRadius: 10, border: 'none',
+                background: 'linear-gradient(135deg, #0d9488, #0f766e)', color: '#fff',
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(13,148,136,0.3)',
+                fontFamily: "'DM Sans', sans-serif",
+              }}>Gravar Assinatura</button>
+            </div>
+
+            <p style={{
+              marginTop: 24, padding: '14px 18px', background: '#f0fdfa', borderRadius: 10,
+              fontSize: 13, color: '#0f766e', lineHeight: 1.5,
+              border: '1px solid #99f6e4',
+            }}>
+              💡 Após o cadastro, o sistema calcula automaticamente o valor mensal equivalente com base na periodicidade informada.
+            </p>
+          </div>
+
+          <Modal show={modal} title="Confirmar Cadastro"
+            message={`Deseja confirmar o cadastro da assinatura ${form.name}?`}
+            onConfirm={confirm} onCancel={() => setModal(false)} />
+        </div>
+      );
+    }
+
+    // ─── Donut Chart (SVG) ──────────────────────────────────────
+    function DonutChart({ data, total }) {
+      const size = 220, cx = size / 2, cy = size / 2, r = 80, stroke = 32;
+      let cumAngle = -90;
+      const slices = data.map(d => {
+        const angle = (d.value / total) * 360;
+        const start = cumAngle;
+        cumAngle += angle;
+        return { ...d, startAngle: start, angle };
+      });
+      const polarToCart = (cx, cy, r, deg) => {
+        const rad = (deg * Math.PI) / 180;
+        return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+      };
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            {slices.map((s, i) => {
+              if (s.angle <= 0) return null;
+              const a = s.angle >= 360 ? 359.99 : s.angle;
+              const start = polarToCart(cx, cy, r, s.startAngle);
+              const end = polarToCart(cx, cy, r, s.startAngle + a);
+              const large = a > 180 ? 1 : 0;
+              const d = `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y}`;
+              return <path key={i} d={d} fill="none" stroke={s.color} strokeWidth={stroke} strokeLinecap="butt" />;
+            })}
+            <text x={cx} y={cy - 8} textAnchor="middle" style={{ fontFamily: "'Sora', sans-serif", fontSize: 11, fill: '#94a3b8', fontWeight: 500 }}>Total</text>
+            <text x={cx} y={cy + 14} textAnchor="middle" style={{ fontFamily: "'Sora', sans-serif", fontSize: 17, fill: '#0f172a', fontWeight: 700 }}>{fmtBRL(total)}</text>
+          </svg>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {data.map((d, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: d.color, flexShrink: 0 }} />
+                <span style={{ color: '#475569', minWidth: 130 }}>{d.label}</span>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{d.pct.toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── TELA 2: Consultar ──────────────────────────────────────
+    function ConsultarScreen({ subscriptions, goToAlerts }) {
+      const [statusTab, setStatusTab] = useState('Todas');
+      const [search, setSearch] = useState('');
+      const [catFilter, setCatFilter] = useState('');
+      const [minVal, setMinVal] = useState('');
+      const [maxVal, setMaxVal] = useState('');
+      const [sortCol, setSortCol] = useState(null);
+      const [sortAsc, setSortAsc] = useState(true);
+
+      const activeSubs = subscriptions.filter(s => s.status === 'Ativa');
+      const totalMonthly = activeSubs.reduce((s, a) => s + a.monthly, 0);
+      const totalAnnual = totalMonthly * 12;
+
+      const filtered = useMemo(() => {
+        let list = [...subscriptions];
+        if (statusTab !== 'Todas') list = list.filter(s => s.status === statusTab);
+        if (search) list = list.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+        if (catFilter) list = list.filter(s => s.category === catFilter);
+        if (minVal !== '') list = list.filter(s => s.value >= parseFloat(minVal));
+        if (maxVal !== '') list = list.filter(s => s.value <= parseFloat(maxVal));
+        if (sortCol) {
+          list.sort((a, b) => {
+            let va, vb;
+            switch (sortCol) {
+              case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); break;
+              case 'value': va = a.value; vb = b.value; break;
+              case 'period': va = PERIODS.indexOf(a.period); vb = PERIODS.indexOf(b.period); break;
+              case 'monthly': va = a.monthly; vb = b.monthly; break;
+              case 'renewal': va = a.renewalDate?.getTime() || 0; vb = b.renewalDate?.getTime() || 0; break;
+              case 'status': va = STATUSES.indexOf(a.status); vb = STATUSES.indexOf(b.status); break;
+              default: return 0;
+            }
+            if (va < vb) return sortAsc ? -1 : 1;
+            if (va > vb) return sortAsc ? 1 : -1;
+            return 0;
+          });
+        }
+        return list;
+      }, [subscriptions, statusTab, search, catFilter, minVal, maxVal, sortCol, sortAsc]);
+
+      const toggleSort = (col) => {
+        if (sortCol === col) setSortAsc(!sortAsc);
+        else { setSortCol(col); setSortAsc(true); }
+      };
+
+      const chartData = useMemo(() => {
+        const map = {};
+        activeSubs.forEach(s => {
+          map[s.category] = (map[s.category] || 0) + s.monthly;
+        });
+        return Object.entries(map).map(([label, value]) => ({
+          label, value, color: CATEGORY_COLORS[label] || '#64748b',
+          pct: totalMonthly > 0 ? (value / totalMonthly) * 100 : 0,
+        })).sort((a, b) => b.value - a.value);
+      }, [activeSubs, totalMonthly]);
+
+      const nextRenewal = useMemo(() => {
+        const active = subscriptions.filter(s => s.status !== 'Cancelada').sort((a, b) => a.renewalDate - b.renewalDate);
+        return active[0] || null;
+      }, [subscriptions]);
+
+      const highestSpend = useMemo(() => activeSubs.reduce((m, s) => s.monthly > (m?.monthly || 0) ? s : m, null), [activeSubs]);
+      const lowestSpend = useMemo(() => activeSubs.reduce((m, s) => s.monthly < (m?.monthly || Infinity) ? s : m, null), [activeSubs]);
+      const pausedSavings = subscriptions.filter(s => s.status === 'Pausada').reduce((s, a) => s + a.monthly, 0);
+
+      const clearFilters = () => { setSearch(''); setCatFilter(''); setMinVal(''); setMaxVal(''); setStatusTab('Todas'); };
+
+      const SortIcon = ({ col }) => {
+        if (sortCol !== col) return <span style={{ opacity: 0.3, fontSize: 11 }}> ↕</span>;
+        return <span style={{ fontSize: 11, color: '#0d9488' }}> {sortAsc ? '↑' : '↓'}</span>;
+      };
+
+      const thStyle = {
+        padding: '12px 14px', textAlign: 'left', fontSize: 12, fontWeight: 600,
+        color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px',
+        cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+        borderBottom: '2px solid #e2e8f0', fontFamily: "'DM Sans', sans-serif",
+      };
+      const tdStyle = {
+        padding: '14px 14px', fontSize: 14, color: '#334155', borderBottom: '1px solid #f1f5f9',
+        fontFamily: "'DM Sans', sans-serif",
+      };
+
+      return (
+        <div style={{ animation: 'fadeIn 0.4s ease', maxWidth: 1200, margin: '0 auto', padding: '32px 16px' }}>
+          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 28, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
+            Consultar Assinaturas
+          </h1>
+          <p style={{ color: '#64748b', fontSize: 15, marginBottom: 28 }}>Visualize, filtre e analise suas assinaturas.</p>
+
+          {/* Totalizadores */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 28 }}>
+            {[
+              { label: 'Assinaturas Ativas', value: `${activeSubs.length} de ${subscriptions.length}`, sub: 'cadastradas', color: '#16a34a', bg: '#f0fdf4' },
+              { label: 'Gasto Mensal', value: fmtBRL(totalMonthly), sub: 'total ativas', color: '#0d9488', bg: '#f0fdfa' },
+              { label: 'Gasto Anual Estimado', value: fmtBRL(totalAnnual), sub: 'projeção 12 meses', color: '#6366f1', bg: '#eef2ff' },
+            ].map((c, i) => (
+              <div key={i} style={{
+                background: '#fff', borderRadius: 14, padding: '24px 20px',
+                border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                animation: `slideUp 0.4s ease ${i * 0.1}s both`,
+              }}>
+                <p style={{ fontSize: 13, color: '#64748b', fontWeight: 500, marginBottom: 8 }}>{c.label}</p>
+                <p style={{ fontFamily: "'Sora', sans-serif", fontSize: 28, fontWeight: 800, color: c.color }}>{c.value}</p>
+                <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{c.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Filtros */}
+          <div style={{
+            background: '#fff', borderRadius: 14, padding: '20px 20px 16px',
+            border: '1px solid #e2e8f0', marginBottom: 20,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          }}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+              {['Todas', 'Ativas', 'Pausadas', 'Canceladas'].map(t => {
+                const s = t === 'Todas' ? t : t.slice(0, -1) + (t.endsWith('as') ? 'a' : '');
+                const tabVal = t === 'Todas' ? t : t === 'Ativas' ? 'Ativa' : t === 'Pausadas' ? 'Pausada' : 'Cancelada';
+                return (
+                  <button key={t} onClick={() => setStatusTab(tabVal === 'Todas' ? 'Todas' : tabVal)} style={{
+                    padding: '8px 18px', borderRadius: 8, border: 'none',
+                    background: statusTab === (t === 'Todas' ? 'Todas' : tabVal) ? '#0d9488' : '#f1f5f9',
+                    color: statusTab === (t === 'Todas' ? 'Todas' : tabVal) ? '#fff' : '#64748b',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s',
+                  }}>{t}</button>
+                );
+              })}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: 4 }}>BUSCAR</label>
+                <input style={inputStyle()} placeholder="Nome do serviço..." value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: 4 }}>CATEGORIA</label>
+                <select style={selectStyle()} value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+                  <option value="">Todas</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: 4 }}>VALOR MÍN (R$)</label>
+                <input style={inputStyle()} type="number" min="0" step="0.01" value={minVal} onChange={e => setMinVal(e.target.value)} placeholder="0,00" />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: 4 }}>VALOR MÁX (R$)</label>
+                <input style={inputStyle()} type="number" min="0" step="0.01" value={maxVal} onChange={e => setMaxVal(e.target.value)} placeholder="0,00" />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={clearFilters} style={{
+                  padding: '10px 18px', borderRadius: 10, border: '1px solid #e2e8f0',
+                  background: '#fff', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif", flex: 1,
+                }}>Limpar</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabela */}
+          <div style={{
+            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'auto', marginBottom: 28,
+          }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 48, textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
+                Nenhuma assinatura encontrada para os filtros selecionados.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle} onClick={() => toggleSort('name')}>Serviço<SortIcon col="name" /></th>
+                    <th style={thStyle} onClick={() => toggleSort('value')}>Valor<SortIcon col="value" /></th>
+                    <th style={thStyle} onClick={() => toggleSort('period')}>Período<SortIcon col="period" /></th>
+                    <th style={thStyle} onClick={() => toggleSort('monthly')}>Mensal Eq.<SortIcon col="monthly" /></th>
+                    <th style={thStyle} onClick={() => toggleSort('renewal')}>Renovação<SortIcon col="renewal" /></th>
+                    <th style={thStyle} onClick={() => toggleSort('status')}>Status<SortIcon col="status" /></th>
+                    <th style={{ ...thStyle, cursor: 'default' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((s, i) => (
+                    <tr key={s.id} style={{ animation: `slideUp 0.3s ease ${i * 0.04}s both`, transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={tdStyle}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 36, height: 36, borderRadius: 10,
+                            background: CATEGORY_COLORS[s.category] + '18',
+                            color: CATEGORY_COLORS[s.category],
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 700, fontSize: 13, fontFamily: "'Sora', sans-serif",
+                            flexShrink: 0,
+                          }}>{initials(s.name)}</div>
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#0f172a' }}>{s.name}</div>
+                            <div style={{ fontSize: 12, color: '#94a3b8' }}>{s.category}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ ...tdStyle, fontWeight: 600, fontFamily: "'Sora', sans-serif" }}>{fmtBRL(s.value)}</td>
+                      <td style={tdStyle}>{s.period}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: '#0d9488', fontFamily: "'Sora', sans-serif" }}>{fmtBRL(s.monthly)}</td>
+                      <td style={tdStyle}>{s.renewalDate ? fmtDate(s.renewalDate) : '—'}</td>
+                      <td style={tdStyle}>
+                        <span style={{
+                          display: 'inline-block', padding: '4px 12px', borderRadius: 20,
+                          fontSize: 12, fontWeight: 600,
+                          background: STATUS_BG[s.status], color: STATUS_COLORS[s.status],
+                        }}>{s.status}</span>
+                      </td>
+                      <td style={tdStyle}>
+                        <button onClick={() => goToAlerts(s.id)} style={{
+                          background: 'none', border: 'none', color: '#0d9488',
+                          fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          fontFamily: "'DM Sans', sans-serif",
+                          textDecoration: 'underline', textUnderlineOffset: 2,
+                        }}>Configurar Alerta</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Gráfico + Resumo */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20 }}>
+            {/* Gráfico */}
+            <div style={{
+              background: '#fff', borderRadius: 14, padding: 28,
+              border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}>
+              <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 20 }}>
+                Distribuição por Categoria
+              </h3>
+              {chartData.length > 0 ? (
+                <DonutChart data={chartData} total={totalMonthly} />
+              ) : (
+                <p style={{ color: '#94a3b8', fontSize: 14, textAlign: 'center', padding: 32 }}>Sem dados para exibir.</p>
+              )}
+            </div>
+
+            {/* Resumo */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0f172a, #1e293b)', borderRadius: 14, padding: 28,
+              color: '#fff',
+            }}>
+              <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, marginBottom: 24 }}>
+                Resumo Rápido
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Próxima Renovação</p>
+                  <p style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Sora', sans-serif" }}>
+                    {nextRenewal ? `${fmtDate(nextRenewal.renewalDate)} — ${nextRenewal.name}` : '—'}
+                  </p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Maior Gasto</p>
+                    <p style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Sora', sans-serif", color: '#f87171' }}>
+                      {highestSpend ? `${fmtBRL(highestSpend.monthly)}/mês` : '—'}
+                    </p>
+                    <p style={{ fontSize: 12, color: '#64748b' }}>{highestSpend?.name || ''}</p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Menor Gasto</p>
+                    <p style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Sora', sans-serif", color: '#34d399' }}>
+                      {lowestSpend ? `${fmtBRL(lowestSpend.monthly)}/mês` : '—'}
+                    </p>
+                    <p style={{ fontSize: 12, color: '#64748b' }}>{lowestSpend?.name || ''}</p>
+                  </div>
+                </div>
+                <div style={{ borderTop: '1px solid #334155', paddingTop: 16 }}>
+                  <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Economia se cancelar pausadas</p>
+                  <p style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Sora', sans-serif", color: '#fbbf24' }}>
+                    {fmtBRL(pausedSavings)}<span style={{ fontSize: 14, fontWeight: 500 }}>/mês</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── TELA 3: Alertas ────────────────────────────────────────
+    function AlertasScreen({ subscriptions, setSubscriptions, showToast }) {
+      const [globalDays, setGlobalDays] = useState(3);
+      const [globalError, setGlobalError] = useState('');
+
+      const upcoming = useMemo(() => {
+        const now = today();
+        const limit = addDays(now, 30);
+        return subscriptions
+          .filter(s => s.status !== 'Cancelada')
+          .filter(s => s.renewalDate && s.renewalDate <= limit)
+          .sort((a, b) => a.renewalDate - b.renewalDate);
+      }, [subscriptions]);
+
+      const updateSub = (id, updates) => {
+        setSubscriptions(subs => subs.map(s => s.id === id ? { ...s, ...updates } : s));
+      };
+
+      const handleGlobalChange = (v) => {
+        const n = parseInt(v);
+        setGlobalDays(v);
+        if (isNaN(n) || n < 1 || n > 30) {
+          setGlobalError('A antecedência do alerta deve ser um valor entre 1 e 30 dias.');
+        } else {
+          setGlobalError('');
+        }
+      };
+
+      const getAlertStatus = (sub) => {
+        if (!sub.alertEnabled) return 'Desativado';
+        const days = diffDays(sub.renewalDate, today());
+        const alertD = sub.alertDays || globalDays;
+        if (days <= 0) return 'Enviado';
+        if (days <= alertD) return 'Enviado';
+        return 'Pendente';
+      };
+
+      const alertStatusColors = {
+        Enviado: { bg: '#dcfce7', color: '#16a34a' },
+        Pendente: { bg: '#fef9c3', color: '#a16207' },
+        Desativado: { bg: '#f1f5f9', color: '#64748b' },
+      };
+
+      const getUrgencyBg = (days) => {
+        if (days < 0) return '#fff1f2';
+        if (days <= 3) return '#fee2e2';
+        if (days <= 7) return '#fef3c7';
+        return 'transparent';
+      };
+
+      return (
+        <div style={{ animation: 'fadeIn 0.4s ease', maxWidth: 900, margin: '0 auto', padding: '32px 16px' }}>
+          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 28, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
+            Alertas de Renovação
+          </h1>
+          <p style={{ color: '#64748b', fontSize: 15, marginBottom: 28 }}>Configure alertas para ser notificado antes das renovações.</p>
+
+          {/* Global Alert Config */}
+          <div style={{
+            background: 'linear-gradient(135deg, #0f172a, #1e293b)', borderRadius: 14, padding: 28,
+            color: '#fff', marginBottom: 28,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Alerta Padrão Global</h3>
+                <p style={{ fontSize: 14, color: '#94a3b8' }}>Defina a antecedência padrão para todos os alertas.</p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <input type="number" min="1" max="30" value={globalDays}
+                  onChange={e => handleGlobalChange(e.target.value)}
+                  style={{
+                    width: 80, padding: '12px 8px', borderRadius: 12,
+                    border: `2px solid ${globalError ? '#ef4444' : '#334155'}`,
+                    background: '#1e293b', color: '#fff',
+                    fontSize: 28, fontWeight: 800, fontFamily: "'Sora', sans-serif",
+                    textAlign: 'center', outline: 'none',
+                  }} />
+                <span style={{ fontSize: 16, fontWeight: 600, color: '#94a3b8' }}>dias antes</span>
+              </div>
+            </div>
+            {globalError && <p style={{ color: '#f87171', fontSize: 13, marginTop: 8 }}>{globalError}</p>}
+          </div>
+
+          {/* Upcoming List */}
+          <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 16 }}>
+            Próximos Vencimentos (30 dias)
+          </h3>
+
+          {upcoming.length === 0 ? (
+            <div style={{
+              background: '#fff', borderRadius: 14, padding: 48, textAlign: 'center',
+              color: '#94a3b8', fontSize: 14, border: '1px solid #e2e8f0',
+            }}>
+              Nenhuma assinatura vencendo nos próximos 30 dias.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 28 }}>
+              {upcoming.map((s, i) => {
+                const days = diffDays(s.renewalDate, today());
+                const urgBg = getUrgencyBg(days);
+                const alertSt = getAlertStatus(s);
+                const stColors = alertStatusColors[alertSt];
+                return (
+                  <div key={s.id} style={{
+                    background: urgBg || '#fff', borderRadius: 14, padding: '18px 20px',
+                    border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                    display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+                    animation: `slideInRight 0.3s ease ${i * 0.06}s both`,
+                    transition: 'background 0.2s',
+                  }}>
+                    {/* Icon */}
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 12,
+                      background: CATEGORY_COLORS[s.category] + '18',
+                      color: CATEGORY_COLORS[s.category],
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, fontSize: 15, fontFamily: "'Sora', sans-serif",
+                      flexShrink: 0,
+                    }}>{initials(s.name)}</div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 15 }}>{s.name}</div>
+                      <div style={{ fontSize: 13, color: '#64748b' }}>Renova em {fmtDate(s.renewalDate)}</div>
+                    </div>
+
+                    {/* Days counter */}
+                    <div style={{ textAlign: 'center', minWidth: 70 }}>
+                      <div style={{
+                        fontFamily: "'Sora', sans-serif", fontSize: 32, fontWeight: 800,
+                        color: days < 0 ? '#dc2626' : days <= 3 ? '#dc2626' : days <= 7 ? '#d97706' : '#0d9488',
+                        lineHeight: 1,
+                      }}>{days}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{days < 0 ? 'vencido' : 'dias'}</div>
+                    </div>
+
+                    {/* Alert days input */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 120 }}>
+                      <input type="number" min="1" max="30"
+                        value={s.alertDays || globalDays}
+                        onChange={e => updateSub(s.id, { alertDays: parseInt(e.target.value) || null })}
+                        style={{
+                          width: 52, padding: '8px 4px', borderRadius: 8,
+                          border: '1.5px solid #e2e8f0', fontSize: 15, fontWeight: 700,
+                          fontFamily: "'Sora', sans-serif", textAlign: 'center',
+                          color: '#0f172a', background: '#fff', outline: 'none',
+                        }} />
+                      <span style={{ fontSize: 12, color: '#64748b' }}>dias</span>
+                    </div>
+
+                    {/* Toggle */}
+                    <button onClick={() => updateSub(s.id, { alertEnabled: !s.alertEnabled })} style={{
+                      width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+                      background: s.alertEnabled ? '#0d9488' : '#cbd5e1',
+                      position: 'relative', transition: 'background 0.2s',
+                      flexShrink: 0,
+                    }}>
+                      <div style={{
+                        width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                        position: 'absolute', top: 3,
+                        left: s.alertEnabled ? 25 : 3,
+                        transition: 'left 0.2s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      }} />
+                    </button>
+
+                    {/* Status badge */}
+                    <span style={{
+                      display: 'inline-block', padding: '4px 12px', borderRadius: 20,
+                      fontSize: 12, fontWeight: 600,
+                      background: stColors.bg, color: stColors.color,
+                      minWidth: 80, textAlign: 'center',
+                    }}>{alertSt}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Timeline */}
+          <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 16 }}>
+            Timeline
+          </h3>
+          <div style={{
+            background: '#fff', borderRadius: 14, padding: '24px 20px',
+            border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            marginBottom: 28,
+          }}>
+            {upcoming.length === 0 ? (
+              <p style={{ color: '#94a3b8', fontSize: 14, textAlign: 'center' }}>Sem vencimentos nos próximos 30 dias.</p>
+            ) : (
+              <div style={{ position: 'relative', paddingLeft: 28 }}>
+                {/* Vertical line */}
+                <div style={{
+                  position: 'absolute', left: 7, top: 4, bottom: 4, width: 2,
+                  background: '#e2e8f0', borderRadius: 1,
+                }} />
+                {upcoming.map((s, i) => {
+                  const days = diffDays(s.renewalDate, today());
+                  const dotColor = days < 0 ? '#dc2626' : days <= 3 ? '#dc2626' : days <= 7 ? '#eab308' : '#94a3b8';
+                  return (
+                    <div key={s.id} style={{
+                      position: 'relative', paddingBottom: i < upcoming.length - 1 ? 20 : 0,
+                      animation: `fadeIn 0.3s ease ${i * 0.06}s both`,
+                    }}>
+                      <div style={{
+                        position: 'absolute', left: -24, top: 4,
+                        width: 14, height: 14, borderRadius: '50%',
+                        background: dotColor, border: '3px solid #fff',
+                        boxShadow: `0 0 0 2px ${dotColor}33`,
+                      }} />
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 13, fontWeight: 700, color: '#0f172a', minWidth: 80 }}>
+                          {fmtDate(s.renewalDate)}
+                        </span>
+                        <span style={{ fontSize: 14, color: '#475569', fontWeight: 500 }}>{s.name}</span>
+                        <span style={{
+                          fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                          color: days < 0 ? '#dc2626' : days <= 3 ? '#dc2626' : days <= 7 ? '#d97706' : '#64748b',
+                          background: days < 0 ? '#fee2e2' : days <= 3 ? '#fee2e2' : days <= 7 ? '#fef3c7' : '#f1f5f9',
+                        }}>
+                          {days < 0 ? `${Math.abs(days)}d atrás` : `em ${days}d`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Save button */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={() => showToast('Configuração de alerta salva com sucesso.')} style={{
+              padding: '14px 32px', borderRadius: 12, border: 'none',
+              background: 'linear-gradient(135deg, #0d9488, #0f766e)', color: '#fff',
+              fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              boxShadow: '0 4px 20px rgba(13,148,136,0.3)',
+              fontFamily: "'Sora', sans-serif",
+              transition: 'transform 0.15s, box-shadow 0.15s',
+            }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 24px rgba(13,148,136,0.4)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(13,148,136,0.3)'; }}>
+              Salvar Configuração
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── App Root ───────────────────────────────────────────────
+    function App() {
+      const [page, setPage] = useState('consultar');
+      const [subscriptions, setSubscriptions] = useState(INITIAL_SUBS);
+      const [toasts, setToasts] = useState([]);
+
+      const showToast = useCallback((msg) => {
+        const id = Date.now();
+        setToasts(t => [...t, { id, msg }]);
+        setTimeout(() => {
+          setToasts(t => t.map(x => x.id === id ? { ...x, leaving: true } : x));
+          setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 350);
+        }, 3000);
+      }, []);
+
+      const addSubscription = useCallback((sub) => {
+        setSubscriptions(s => [...s, sub]);
+      }, []);
+
+      const goToAlerts = useCallback((subId) => {
+        setPage('alertas');
+      }, []);
+
+      return (
+        <div>
+          <Navbar active={page} onChange={setPage} />
+          {page === 'cadastrar' && (
+            <CadastrarScreen subscriptions={subscriptions} onAdd={addSubscription} showToast={showToast} />
+          )}
+          {page === 'consultar' && (
+            <ConsultarScreen subscriptions={subscriptions} goToAlerts={goToAlerts} />
+          )}
+          {page === 'alertas' && (
+            <AlertasScreen subscriptions={subscriptions} setSubscriptions={setSubscriptions} showToast={showToast} />
+          )}
+          <ToastContainer toasts={toasts} onRemove={(id) => setToasts(t => t.filter(x => x.id !== id))} />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
