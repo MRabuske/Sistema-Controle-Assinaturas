@@ -1,3 +1,5 @@
+import React from 'react';
+
 export default function DonutChart({ data, total }) {
   const size = 220, cx = size / 2, cy = size / 2, r = 80;
   const fmtBRL = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });

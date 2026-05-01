@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { clearToken } from './services/api';
 import Login from './pages/Login';
 import Cadastrar from './pages/Cadastrar';

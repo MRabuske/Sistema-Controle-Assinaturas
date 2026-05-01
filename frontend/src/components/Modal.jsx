@@ -1,3 +1,5 @@
+import React from 'react';
+
 export default function Modal({ show, title, message, onConfirm, onCancel }) {
   if (!show) return null;
   return (

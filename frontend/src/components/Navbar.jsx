@@ -1,3 +1,5 @@
+import React from 'react';
+
 export default function Navbar({ active, onChange, onLogout, userName }) {
   const tabs = [
     { id: 'cadastrar', label: 'Cadastrar', icon: '+' },

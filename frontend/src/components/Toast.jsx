@@ -1,3 +1,5 @@
+import React from 'react';
+
 export default function ToastContainer({ toasts, onRemove }) {
   return (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8 }}>
