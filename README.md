@@ -1,5 +1,10 @@
 # SubControl - Sistema de Controle de Assinaturas
-### Integrantes do Grupo: Matheus Barreto Ferreira Rabuske — UC23100063; João Victor Martins Albernaz — UC23101140; Matheus Mendes — UC24101240; Pedro Siqueira Martins — UC20200865; Matheus Camargo Barreto Ramos — UC22200055 
+### Integrantes do Grupo: 
+Matheus Barreto Ferreira Rabuske — UC23100063; 
+João Victor Martins Albernaz — UC23101140; 
+Matheus Mendes — UC24101240; 
+Pedro Siqueira Martins — UC20200865; 
+Matheus Camargo Barreto Ramos — UC22200055 
 Projeto da disciplina de Teste de Software. Sistema completo para gerenciar assinaturas de servicos recorrentes (streaming, software, etc).
 
 ## Requisitos
