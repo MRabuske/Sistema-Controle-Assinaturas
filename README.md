@@ -5,7 +5,8 @@
 #### Matheus Mendes De Oliveira — UC24101240; 
 #### Pedro Siqueira Martins — UC20200865; 
 #### Matheus Camargo Barreto Ramos — UC22200055; 
-Projeto da disciplina de Teste de Software. Sistema completo para gerenciar assinaturas de servicos recorrentes (streaming, software, etc).
+
+Projeto da disciplina de Teste de Software. Sistema completo para gerenciamr assinaturas de servicos recorrentes (streaming, software, etc).
 
 ## Requisitos
 
