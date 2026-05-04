@@ -75,6 +75,8 @@ npm run test:backend
 
 Resultado esperado: **51 testes passando** (22 unitarios + 29 de API)
 
+Os testes cobrem regras de negocio, validacoes, autenticacao e operacoes CRUD, garantindo confiabilidade da aplicação.
+
 ### Testes E2E (Cypress)
 
 Com o sistema rodando (`npm run dev`), em outro terminal:
