@@ -52,13 +52,13 @@ http://localhost:5173
 
 ### Cadastrar (HU-001)
 - Cadastro de novas assinaturas com nome, categoria, valor, periodicidade, forma de pagamento, data de renovacao e status
-- Calculo automatico do valor mensal equivalente
-- Validacoes: nome duplicado, valor positivo, data futura
+- Calculo automatico do valor mensal equivalente para melhor controle financeiro
+- Validacoes: nome duplicado, valor positivo, data futura e campos obrigatórios
 
 ### Consultar (HU-002)
 - Listagem de todas as assinaturas com filtros por status, categoria, busca por nome e faixa de valor
 - Painel com estatisticas: total de assinaturas, assinaturas ativas, gasto mensal e gasto anual
-- Grafico de distribuicao por categoria
+- Grafico de distribuicao por categoria para visualização de gastos
 
 ### Alertas (HU-003)
 - Configuracao global de dias de antecedencia para alertas de renovacao
